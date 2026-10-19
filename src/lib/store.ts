@@ -35,6 +35,13 @@ import {
   SEED_TIMETABLE_B
 } from './seedData';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import {
+  apiCreateTask,
+  apiUpdateTask,
+  apiDeleteTask,
+  apiCreateFocusSession,
+  apiGetTasks
+} from './excelApi';
 
 // Storage keys
 const KEY_PREFIX = 'duo_os_';
@@ -313,6 +320,9 @@ export function addTask(taskData: Omit<Task, 'id' | 'createdAt'>): Task {
     summary: `Added new task: "${newTask.title}"`
   });
 
+  // Background sync to Excel database
+  apiCreateTask(newTask).catch(() => {});
+
   broadcastUpdate('TASK_ADD', newTask);
   return newTask;
 }
@@ -323,6 +333,10 @@ export function updateTask(task: Task) {
   if (idx !== -1) {
     all[idx] = task;
     writeStorage(KEY_TASKS, all);
+
+    // Background sync to Excel database
+    apiUpdateTask(task.id, task).catch(() => {});
+
     broadcastUpdate('TASK_UPDATE', task);
   }
 }
@@ -331,6 +345,10 @@ export function deleteTask(taskId: string) {
   const all = readStorage<Task[]>(KEY_TASKS, []);
   const filtered = all.filter(t => t.id !== taskId);
   writeStorage(KEY_TASKS, filtered);
+
+  // Background sync to Excel database
+  apiDeleteTask(taskId).catch(() => {});
+
   broadcastUpdate('TASK_DELETE', taskId);
 }
 
@@ -344,6 +362,9 @@ export function toggleTaskComplete(taskId: string): Task | null {
   task.completedAt = isNowCompleted ? new Date().toISOString() : undefined;
 
   writeStorage(KEY_TASKS, all);
+
+  // Background sync to Excel database
+  apiUpdateTask(task.id, task).catch(() => {});
 
   // If completed, post activity event
   if (isNowCompleted) {
@@ -535,8 +556,42 @@ export function recordFocusSession(sessionData: Omit<FocusSession, 'id' | 'compl
     });
   }
 
+  // Background sync to Excel database
+  apiCreateFocusSession({
+    id: newSession.id,
+    userId: newSession.userId,
+    taskTitle: newSession.taskTitle || newSession.reason || 'Focus Session',
+    category: newSession.category,
+    durationMinutes: newSession.durationMinutes,
+    mode: newSession.mode,
+    energyScore: newSession.energyScore,
+    focusScore: newSession.focusScore,
+    reflectionNotes: newSession.reflectionNotes,
+    createdAt: newSession.completedAt
+  }).catch(() => {});
+
   broadcastUpdate('FOCUS_UPDATE', newSession);
   return newSession;
+}
+
+// Two-way synchronization with Excel Backend
+export async function syncWithExcelBackend(): Promise<{ success: boolean; message: string; count?: number }> {
+  try {
+    const remoteTasks = await apiGetTasks();
+    if (remoteTasks && remoteTasks.length > 0) {
+      writeStorage(KEY_TASKS, remoteTasks);
+      broadcastUpdate('TASKS_SYNCED_EXCEL', remoteTasks);
+      return { success: true, message: `Synced ${remoteTasks.length} tasks from Excel database!`, count: remoteTasks.length };
+    } else {
+      const localTasks = getTasks();
+      for (const t of localTasks) {
+        await apiCreateTask(t);
+      }
+      return { success: true, message: `Pushed ${localTasks.length} local tasks into Excel database!`, count: localTasks.length };
+    }
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Sync failed' };
+  }
 }
 
 export function deleteFocusSession(sessionId: string) {

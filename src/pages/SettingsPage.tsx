@@ -24,8 +24,13 @@ import {
   Laptop,
   Check,
   User,
-  Sliders
+  Sliders,
+  FileSpreadsheet,
+  Download,
+  RefreshCw
 } from 'lucide-react';
+import { checkBackendHealth, getExcelDownloadUrl, BackendHealth } from '../lib/excelApi';
+import { syncWithExcelBackend } from '../lib/store';
 
 const ACCENT_COLORS: { id: 'violet' | 'indigo' | 'mint' | 'sky' | 'coral'; label: string; hex: string }[] = [
   { id: 'violet', label: 'Electric Violet', hex: '#8B5CF6' },
@@ -42,6 +47,34 @@ export const SettingsPage: React.FC = () => {
 
   const [creds, setCreds] = useState(getSupabaseCredentials());
   const [isCloudConfigured, setIsCloudConfigured] = useState(isSupabaseConfigured());
+
+  // Excel Backend Database State
+  const [excelHealth, setExcelHealth] = useState<BackendHealth | null>(null);
+  const [isExcelLoading, setIsExcelLoading] = useState(false);
+  const [isExcelSyncing, setIsExcelSyncing] = useState(false);
+
+  const fetchExcelHealth = async () => {
+    setIsExcelLoading(true);
+    const data = await checkBackendHealth();
+    setExcelHealth(data);
+    setIsExcelLoading(false);
+  };
+
+  React.useEffect(() => {
+    fetchExcelHealth();
+  }, []);
+
+  const handleExcelSync = async () => {
+    setIsExcelSyncing(true);
+    const res = await syncWithExcelBackend();
+    setIsExcelSyncing(false);
+    if (res.success) {
+      toast.success('Excel Synced!', res.message);
+      fetchExcelHealth();
+    } else {
+      toast.error('Sync Error', res.message);
+    }
+  };
 
   // Fixed Commitments Form state
   const [gymTime, setGymTime] = useState(user.fixedCommitments.gymTime);
@@ -297,7 +330,82 @@ export const SettingsPage: React.FC = () => {
         </form>
       </div>
 
-      {/* 3. Supabase Cloud Database Integration */}
+      {/* 3. Excel Database (.xlsx) Backend */}
+      <div className="p-6 rounded-3xl bg-[#0D1322]/80 border border-white/8 shadow-xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-white font-bold text-sm">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> Excel Database (.xlsx) Backend
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchExcelHealth}
+              disabled={isExcelLoading}
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              title="Refresh Excel status"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isExcelLoading ? 'animate-spin' : ''}`} />
+            </button>
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono ${
+              excelHealth
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+            }`}>
+              {excelHealth ? 'Connected (Port 5000)' : 'Server Offline'}
+            </span>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed">
+          The project includes a standalone Express REST API backend that stores all your tasks, users, focus sessions, timetable, and exams inside an authentic Microsoft Excel spreadsheet (<code className="text-emerald-300 font-mono">database.xlsx</code>).
+        </p>
+
+        {/* Live Metrics Grid */}
+        {excelHealth?.stats?.counts && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Object.entries(excelHealth.stats.counts).slice(0, 4).map(([sheet, count]) => (
+              <div key={sheet} className="p-3 rounded-2xl bg-slate-900/60 border border-white/5">
+                <span className="text-[11px] text-slate-400 font-medium block">{sheet}</span>
+                <span className="text-base font-bold font-mono text-white mt-1 block">{count} rows</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+          <div className="text-[11px] font-mono text-slate-400 truncate max-w-sm">
+            📁 {excelHealth?.stats?.filePath || 'server/data/database.xlsx'}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleExcelSync}
+              disabled={!excelHealth || isExcelSyncing}
+              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isExcelSyncing ? 'animate-spin text-emerald-400' : ''}`} />
+              {isExcelSyncing ? 'Syncing...' : 'Sync with Excel'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => window.open(getExcelDownloadUrl(), '_blank')}
+              disabled={!excelHealth}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition-all"
+            >
+              <Download className="w-3.5 h-3.5" /> Download .xlsx
+            </button>
+          </div>
+        </div>
+
+        {/* Command Box */}
+        <div className="p-3 rounded-2xl bg-black/40 border border-white/5 text-[11px] text-slate-400 flex items-center justify-between">
+          <span>Start Excel backend server:</span>
+          <code className="text-violet-300 font-mono font-medium">npm run server</code>
+        </div>
+      </div>
+
+      {/* 4. Supabase Cloud Database Integration */}
       <div className="p-6 rounded-3xl bg-[#0D1322]/80 border border-white/8 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-white font-bold text-sm">

@@ -11,7 +11,8 @@ import {
   Menu,
   X,
   CheckCircle2,
-  Calendar
+  Calendar,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -19,6 +20,7 @@ import { useToast } from '../../context/ToastContext';
 import { getLiveMood, getNotifications, markNotificationRead } from '../../lib/store';
 import { QuickTaskModal } from '../tasks/QuickTaskModal';
 import { MoodShareModal } from '../together/MoodShareModal';
+import { ExcelDatabaseModal } from '../database/ExcelDatabaseModal';
 
 export const TopNavbar: React.FC<{ onMobileMenuToggle?: () => void }> = ({ onMobileMenuToggle }) => {
   const { user, partner, currentPersona, switchPersona } = useAuth();
@@ -28,6 +30,7 @@ export const TopNavbar: React.FC<{ onMobileMenuToggle?: () => void }> = ({ onMob
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isMoodModalOpen, setIsMoodModalOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
 
   const currentMood = getLiveMood(user.id);
   const notifs = getNotifications(user.id);
@@ -82,6 +85,16 @@ export const TopNavbar: React.FC<{ onMobileMenuToggle?: () => void }> = ({ onMob
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Add Task</span>
+          </button>
+
+          {/* Excel Database Quick Access */}
+          <button
+            onClick={() => setIsExcelModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition-all"
+            title="Excel Database Backend Status & Download"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden lg:inline">Excel DB</span>
           </button>
 
           {/* Dual Student Switcher Pill */}
@@ -154,6 +167,7 @@ export const TopNavbar: React.FC<{ onMobileMenuToggle?: () => void }> = ({ onMob
       {/* Modals */}
       <QuickTaskModal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} />
       <MoodShareModal isOpen={isMoodModalOpen} onClose={() => setIsMoodModalOpen(false)} />
+      <ExcelDatabaseModal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} />
     </>
   );
 };
