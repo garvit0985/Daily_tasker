@@ -51,7 +51,7 @@ export const DayEndReportCard: React.FC<DayEndReportCardProps> = ({
   };
 
   const handleCopyReport = () => {
-    const dateStr = 'October 18, 2026';
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const reportText = `📊 DUO OS — Day End Progress Report (${userName})
 📅 Date: ${dateStr}
 ⏱️ Total Productive Study: ${formatHoursMinutes(stats.productiveMinutes)}
@@ -65,8 +65,11 @@ export const DayEndReportCard: React.FC<DayEndReportCardProps> = ({
 📚 Academics: ${stats.categoryTotals.academics.minutes}m (${stats.categoryTotals.academics.count} sessions)
 🎮 Entertainment: ${stats.categoryTotals.entertainment.minutes}m (${stats.categoryTotals.entertainment.count} sessions)
 
-📝 Completed Sessions (${stats.todaySessions.length}):
-${stats.todaySessions.map((s, idx) => `${idx + 1}. [${(s.category || 'Study').toUpperCase()}] ${s.reason || s.taskTitle || 'Session'} (${s.durationMinutes}m)`).join('\n') || 'No sessions logged today.'}
+📝 Completed Work & Time Slots (${stats.todaySessions.length}):
+${stats.todaySessions.map((s, idx) => {
+  const slotStr = s.timeSlot ? ` • Slot: ${s.timeSlot}` : (s.startTime && s.endTime ? ` • Slot: ${s.startTime} – ${s.endTime}` : '');
+  return `${idx + 1}. [${(s.category || 'Study').toUpperCase()}] ${s.reason || s.taskTitle || 'Session'} (${s.durationMinutes}m)${slotStr}`;
+}).join('\n') || 'No sessions logged today.'}
 
 Great work staying accountable!`;
 
@@ -94,7 +97,9 @@ Great work staying accountable!`;
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               Day-End Progress Report
             </span>
-            <span className="text-xs text-slate-400">October 18, 2026</span>
+            <span className="text-xs text-slate-400">
+              {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </span>
           </div>
           <h3 className="text-lg sm:text-xl font-bold text-white mt-1 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-violet-400" /> Daily Productivity & Focus Summary
@@ -268,13 +273,16 @@ Great work staying accountable!`;
                     </div>
 
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${cfg.bg}`}>
                           {catKey.toUpperCase().replace('_', ' ')}
                         </span>
-                        <span className="text-[11px] text-slate-500 font-mono">{timeStr}</span>
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-violet-500/15 text-violet-300 border border-violet-500/30 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-violet-400" />
+                          {session.timeSlot || (session.startTime && session.endTime ? `${session.startTime} – ${session.endTime}` : timeStr)}
+                        </span>
                       </div>
-                      <p className="text-xs font-semibold text-white truncate mt-0.5">
+                      <p className="text-xs font-semibold text-white truncate mt-1">
                         {session.reason || session.taskTitle || 'Study Session'}
                       </p>
                     </div>

@@ -142,6 +142,10 @@ export const DashboardPage: React.FC = () => {
     totalSeconds: number;
     timeLeft: number;
     isRunning: boolean;
+    startedAt?: string;
+    timeSlot?: string;
+    startTime?: string;
+    endTime?: string;
   } | null>(null);
 
   const [ambientActive, setAmbientActive] = useState(false);
@@ -184,20 +188,42 @@ export const DashboardPage: React.FC = () => {
     };
   }, [activeSession?.isRunning]);
 
-  const handleStartTimerFromModal = (info: { category: SixCategory; reason: string; durationMinutes: number }) => {
+  const handleStartTimerFromModal = (info: {
+    category: SixCategory;
+    reason: string;
+    durationMinutes: number;
+    startTime?: string;
+    endTime?: string;
+    timeSlot?: string;
+    date?: string;
+  }) => {
     const totalSecs = info.durationMinutes * 60;
+    const now = new Date();
     setActiveSession({
       category: info.category,
       reason: info.reason,
       totalSeconds: totalSecs,
       timeLeft: totalSecs,
-      isRunning: true
+      isRunning: true,
+      startedAt: now.toISOString(),
+      timeSlot: info.timeSlot,
+      startTime: info.startTime,
+      endTime: info.endTime
     });
 
-    toast.success(`Started ${info.durationMinutes}m Session!`, `Category: ${info.category.toUpperCase()} • "${info.reason}"`);
+    const slotMsg = info.timeSlot ? ` • Slot: ${info.timeSlot}` : '';
+    toast.success(`Started ${info.durationMinutes}m Session!`, `Category: ${info.category.toUpperCase()} • "${info.reason}"${slotMsg}`);
   };
 
-  const handleLogCompletedDirectly = (info: { category: SixCategory; reason: string; durationMinutes: number }) => {
+  const handleLogCompletedDirectly = (info: {
+    category: SixCategory;
+    reason: string;
+    durationMinutes: number;
+    startTime?: string;
+    endTime?: string;
+    timeSlot?: string;
+    date?: string;
+  }) => {
     recordFocusSession({
       userId: user.id,
       category: info.category,
@@ -205,7 +231,11 @@ export const DashboardPage: React.FC = () => {
       durationMinutes: info.durationMinutes,
       mode: 'custom',
       ambientSound: 'none',
-      sharedWithPartner: true
+      sharedWithPartner: true,
+      startTime: info.startTime,
+      endTime: info.endTime,
+      timeSlot: info.timeSlot,
+      date: info.date
     });
 
     confetti({
@@ -214,7 +244,8 @@ export const DashboardPage: React.FC = () => {
       origin: { y: 0.7 }
     });
 
-    toast.success('Added to Day-End Report!', `Logged ${info.durationMinutes}m for ${info.category.toUpperCase()}`);
+    const slotMsg = info.timeSlot ? ` in slot ${info.timeSlot}` : '';
+    toast.success('Work Added to Schedule!', `Logged ${info.durationMinutes}m for ${info.category.toUpperCase()}${slotMsg}: "${info.reason}"`);
   };
 
   const handleCompleteActiveSession = (sessionToComplete = activeSession) => {
@@ -224,8 +255,17 @@ export const DashboardPage: React.FC = () => {
     ambientSound.stop();
 
     const elapsedSeconds = sessionToComplete.totalSeconds - sessionToComplete.timeLeft;
-    // Minimum 1 min recorded if completed
     const mins = Math.max(1, Math.round(elapsedSeconds / 60));
+
+    const endD = new Date();
+    const startD = sessionToComplete.startedAt
+      ? new Date(sessionToComplete.startedAt)
+      : new Date(endD.getTime() - mins * 60 * 1000);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const startStr = `${pad(startD.getHours())}:${pad(startD.getMinutes())}`;
+    const endStr = `${pad(endD.getHours())}:${pad(endD.getMinutes())}`;
+    const calculatedSlot = sessionToComplete.timeSlot || `${startStr} – ${endStr}`;
+    const dateStr = endD.toISOString().slice(0, 10);
 
     recordFocusSession({
       userId: user.id,
@@ -234,7 +274,11 @@ export const DashboardPage: React.FC = () => {
       durationMinutes: mins,
       mode: 'custom',
       ambientSound: ambientActive ? 'rain' : 'none',
-      sharedWithPartner: true
+      sharedWithPartner: true,
+      startTime: startStr,
+      endTime: endStr,
+      timeSlot: calculatedSlot,
+      date: dateStr
     });
 
     setActiveSession(null);
@@ -246,7 +290,10 @@ export const DashboardPage: React.FC = () => {
       colors: ['#8B5CF6', '#10B981', '#38BDF8', '#F59E0B']
     });
 
-    toast.success('Session Finished & Logged!', `Added ${mins}m to today's Day-End Progress Report.`);
+    toast.success(
+      `Added to Time Slot (${calculatedSlot})!`,
+      `Recorded ${mins}m work for ${sessionToComplete.category.toUpperCase()} on your daily schedule.`
+    );
   };
 
   const handleOpenCategoryModal = (cat?: SixCategory) => {
@@ -323,7 +370,7 @@ export const DashboardPage: React.FC = () => {
         <div className="p-6 rounded-3xl bg-gradient-to-r from-violet-950/50 via-[#11172E] to-slate-950 border border-violet-500/40 shadow-2xl space-y-4 animate-in slide-in-from-top-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-violet-500/20 text-violet-300 border border-violet-500/30 uppercase">
                   {activeSession.category.replace('_', ' ')}
                 </span>
@@ -331,6 +378,12 @@ export const DashboardPage: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                   Live Timer In Progress
                 </span>
+                {activeSession.timeSlot && (
+                  <span className="text-xs font-mono font-bold text-violet-300 bg-violet-500/15 px-2 py-0.5 rounded-md border border-violet-500/30 flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-violet-400" />
+                    Slot: {activeSession.timeSlot}
+                  </span>
+                )}
               </div>
               <h3 className="text-lg font-bold text-white">
                 &ldquo;{activeSession.reason}&rdquo;
@@ -382,9 +435,10 @@ export const DashboardPage: React.FC = () => {
 
             <button
               onClick={() => handleCompleteActiveSession()}
-              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg ml-auto"
+              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg ml-auto hover:scale-105"
+              title="End timer and add to daily schedule time slot"
             >
-              <CheckCircle2 className="w-4 h-4" /> End & Add to Day-End Report
+              <CheckCircle2 className="w-4 h-4" /> End Timer & Add to Time Slot
             </button>
           </div>
         </div>

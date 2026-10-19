@@ -24,8 +24,27 @@ interface SessionReasonModalProps {
   onClose: () => void;
   userId: string;
   defaultCategory?: SixCategory;
-  onStartTimer: (sessionInfo: { category: SixCategory; reason: string; durationMinutes: number }) => void;
-  onLogCompletedDirectly: (sessionInfo: { category: SixCategory; reason: string; durationMinutes: number }) => void;
+  defaultReason?: string;
+  defaultStartTime?: string;
+  defaultEndTime?: string;
+  onStartTimer: (sessionInfo: {
+    category: SixCategory;
+    reason: string;
+    durationMinutes: number;
+    startTime?: string;
+    endTime?: string;
+    timeSlot?: string;
+    date?: string;
+  }) => void;
+  onLogCompletedDirectly: (sessionInfo: {
+    category: SixCategory;
+    reason: string;
+    durationMinutes: number;
+    startTime?: string;
+    endTime?: string;
+    timeSlot?: string;
+    date?: string;
+  }) => void;
 }
 
 const CATEGORY_CONFIG: {
@@ -105,14 +124,34 @@ export const SessionReasonModal: React.FC<SessionReasonModalProps> = ({
   onClose,
   userId,
   defaultCategory = 'cat',
+  defaultReason = '',
+  defaultStartTime,
+  defaultEndTime,
   onStartTimer,
   onLogCompletedDirectly
 }) => {
   const [category, setCategory] = useState<SixCategory>(defaultCategory);
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState(defaultReason);
   const [duration, setDuration] = useState(25);
   const [customDuration, setCustomDuration] = useState('');
   const [isCustom, setIsCustom] = useState(false);
+
+  // Time slot calculation
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const getTimesForDuration = (mins: number) => {
+    const end = new Date();
+    const start = new Date(end.getTime() - mins * 60 * 1000);
+    return {
+      startStr: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
+      endStr: `${pad(end.getHours())}:${pad(end.getMinutes())}`,
+      dateStr: end.toISOString().slice(0, 10)
+    };
+  };
+
+  const initialTimes = getTimesForDuration(25);
+  const [startTime, setStartTime] = useState(defaultStartTime || initialTimes.startStr);
+  const [endTime, setEndTime] = useState(defaultEndTime || initialTimes.endStr);
+  const [date, setDate] = useState(initialTimes.dateStr);
 
   const stats = getDailyCategoryStats(userId);
   const entertainmentSpent = stats.entertainmentMinutes;
@@ -126,7 +165,12 @@ export const SessionReasonModal: React.FC<SessionReasonModalProps> = ({
         setDuration(defaultEntTime > 0 ? defaultEntTime : 15);
       }
     }
-  }, [defaultCategory, isOpen, entertainmentRemaining]);
+    if (defaultReason) {
+      setReason(defaultReason);
+    }
+    if (defaultStartTime) setStartTime(defaultStartTime);
+    if (defaultEndTime) setEndTime(defaultEndTime);
+  }, [defaultCategory, defaultReason, defaultStartTime, defaultEndTime, isOpen, entertainmentRemaining]);
 
   if (!isOpen) return null;
 
@@ -145,23 +189,22 @@ export const SessionReasonModal: React.FC<SessionReasonModalProps> = ({
 
   const handleSelectDuration = (mins: number) => {
     setIsCustom(false);
-    if (isEntertainment) {
-      const capped = Math.min(60, mins);
-      setDuration(capped);
-    } else {
-      setDuration(mins);
-    }
+    const chosenDuration = isEntertainment ? Math.min(60, mins) : mins;
+    setDuration(chosenDuration);
+    const t = getTimesForDuration(chosenDuration);
+    setStartTime(t.startStr);
+    setEndTime(t.endStr);
   };
 
   const handleCustomDurationChange = (val: string) => {
     setCustomDuration(val);
     const num = parseInt(val, 10);
     if (!isNaN(num) && num > 0) {
-      if (isEntertainment) {
-        setDuration(Math.min(60, num));
-      } else {
-        setDuration(num);
-      }
+      const chosenDuration = isEntertainment ? Math.min(60, num) : num;
+      setDuration(chosenDuration);
+      const t = getTimesForDuration(chosenDuration);
+      setStartTime(t.startStr);
+      setEndTime(t.endStr);
     }
   };
 
@@ -183,11 +226,28 @@ export const SessionReasonModal: React.FC<SessionReasonModalProps> = ({
     }
 
     const payloadDuration = isEntertainment ? Math.min(finalDuration, entertainmentRemaining > 0 ? entertainmentRemaining : 60) : finalDuration;
+    const finalTimeSlot = `${startTime} – ${endTime}`;
 
     if (startTimer) {
-      onStartTimer({ category, reason: finalReason, durationMinutes: payloadDuration });
+      onStartTimer({
+        category,
+        reason: finalReason,
+        durationMinutes: payloadDuration,
+        startTime,
+        endTime,
+        timeSlot: finalTimeSlot,
+        date
+      });
     } else {
-      onLogCompletedDirectly({ category, reason: finalReason, durationMinutes: payloadDuration });
+      onLogCompletedDirectly({
+        category,
+        reason: finalReason,
+        durationMinutes: payloadDuration,
+        startTime,
+        endTime,
+        timeSlot: finalTimeSlot,
+        date
+      });
     }
 
     setReason('');
@@ -362,7 +422,44 @@ export const SessionReasonModal: React.FC<SessionReasonModalProps> = ({
           </div>
         </div>
 
-        {/* 4. Action Buttons */}
+        {/* 4. Time Slot Preview & Selector */}
+        <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-white/8 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-violet-400" />
+              Particular Time Slot (Schedule Window):
+            </label>
+            <span className="text-[11px] font-mono font-bold text-violet-300 bg-violet-500/15 px-2.5 py-0.5 rounded-lg border border-violet-500/30">
+              {startTime} – {endTime}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 pt-0.5">
+            <div>
+              <span className="text-[10px] text-slate-400 block mb-1">Start Time:</span>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block mb-1">End Time:</span>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            Work will be added to this particular time block on your daily schedule and day-end report.
+          </p>
+        </div>
+
+        {/* 5. Action Buttons */}
         <div className="pt-2 border-t border-white/8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <button
             type="button"

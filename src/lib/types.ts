@@ -178,6 +178,10 @@ export interface FocusSession {
   energyScore?: number;
   focusScore?: number;
   reflectionNotes?: string;
+  startTime?: string; // 'HH:mm' e.g. '15:30'
+  endTime?: string;   // 'HH:mm' e.g. '16:00'
+  timeSlot?: string;  // e.g. '15:30 – 16:00'
+  date?: string;      // 'YYYY-MM-DD'
 }
 
 export type MoodType =

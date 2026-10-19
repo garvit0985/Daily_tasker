@@ -7,7 +7,9 @@ import {
   getTimetable,
   updateTask,
   rescheduleTask,
-  addTask
+  addTask,
+  getFocusSessions,
+  recordFocusSession
 } from '../lib/store';
 import {
   generateSmartSchedule,
@@ -16,7 +18,7 @@ import {
   ProposedPlanItem,
   TimeSlot
 } from '../lib/planner';
-import { Task } from '../lib/types';
+import { Task, SixCategory } from '../lib/types';
 import {
   CalendarDays,
   Sparkles,
@@ -32,24 +34,36 @@ import {
   Plus,
   RefreshCw,
   SlidersHorizontal,
-  Flame
+  Flame,
+  Play
 } from 'lucide-react';
 import { QuickTaskModal } from '../components/tasks/QuickTaskModal';
+import { SessionReasonModal } from '../components/focus/SessionReasonModal';
 
 export const SchedulePage: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
 
-  const [selectedDate, setSelectedDate] = useState('2026-10-18');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const initialDate = (todayStr >= '2026-10-18' && todayStr <= '2026-12-31') ? todayStr : '2026-10-18';
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   const [energyLevel, setEnergyLevel] = useState<number>(4);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState<PlanGenerationResult | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [focusModalOpen, setFocusModalOpen] = useState(false);
+  const [activeSlotTarget, setActiveSlotTarget] = useState<{
+    category: SixCategory;
+    reason: string;
+    startTime?: string;
+    endTime?: string;
+  } | null>(null);
 
   const tasks = getTasks(user.id);
   const timetable = getTimetable(user.id);
+  const focusSessions = getFocusSessions(user.id);
 
   // Generate or regenerate schedule using planner
   const handleGeneratePlan = () => {
@@ -74,34 +88,42 @@ export const SchedulePage: React.FC = () => {
 
   const fixedSlots = getFixedSlotsForDay(user, selectedDate, timetable);
   const dayTasks = tasks.filter(t => t.scheduledDate === selectedDate || t.dueDate === selectedDate);
+  const dayFocus = focusSessions.filter(f =>
+    f.date === selectedDate || (f.completedAt && f.completedAt.slice(0, 10) === selectedDate)
+  );
 
-  // Combine fixed commitments and scheduled tasks for timeline
+  // Combine fixed commitments, scheduled tasks, and completed focus sessions for timeline
   interface TimelineEvent {
     id: string;
     title: string;
     start: string;
     end: string;
-    type: 'fixed' | 'task';
+    type: 'fixed' | 'task' | 'focus';
     category?: string;
     isLocked?: boolean;
+    isCompleted?: boolean;
+    durationMinutes?: number;
     color: string;
     taskId?: string;
+    focusId?: string;
   }
 
-  const timelineEvents: TimelineEvent[] = [
-    ...fixedSlots.map((s, idx) => ({
-      id: `fixed_${idx}`,
-      title: s.label,
-      start: s.start,
-      end: s.end,
-      type: 'fixed' as const,
-      color: s.type === 'gym' ? 'border-emerald-500/50 bg-emerald-950/30 text-emerald-200'
-           : s.type === 'college' ? 'border-sky-500/50 bg-sky-950/30 text-sky-200'
-           : s.type === 'tuition' ? 'border-violet-500/50 bg-violet-950/40 text-violet-200'
-           : s.type === 'meal' ? 'border-amber-500/30 bg-amber-950/20 text-amber-200'
-           : 'border-slate-700 bg-slate-900/60 text-slate-400'
-    })),
-    ...dayTasks.filter(t => t.scheduledStart && t.scheduledEnd).map(t => ({
+  const fixedEvents: TimelineEvent[] = fixedSlots.map((s, idx) => ({
+    id: `fixed_${idx}`,
+    title: s.label,
+    start: s.start,
+    end: s.end,
+    type: 'fixed' as const,
+    color: s.type === 'gym' ? 'border-emerald-500/50 bg-emerald-950/30 text-emerald-200'
+         : s.type === 'college' ? 'border-sky-500/50 bg-sky-950/30 text-sky-200'
+         : s.type === 'tuition' ? 'border-violet-500/50 bg-violet-950/40 text-violet-200'
+         : s.type === 'meal' ? 'border-amber-500/30 bg-amber-950/20 text-amber-200'
+         : 'border-slate-700 bg-slate-900/60 text-slate-400'
+  }));
+
+  const taskEvents: TimelineEvent[] = dayTasks.filter(t => t.scheduledStart && t.scheduledEnd).map(t => {
+    const isCompleted = t.status === 'completed';
+    return {
       id: t.id,
       title: t.title,
       start: t.scheduledStart!,
@@ -109,11 +131,45 @@ export const SchedulePage: React.FC = () => {
       type: 'task' as const,
       category: t.category,
       isLocked: t.isLocked,
+      isCompleted,
+      durationMinutes: t.actualMinutes || t.estimatedMinutes,
       taskId: t.id,
-      color: t.priority === 'urgent' ? 'border-rose-500/60 bg-rose-950/30 text-rose-200'
-           : t.priority === 'high' ? 'border-amber-500/60 bg-amber-950/30 text-amber-200'
-           : 'border-violet-500/60 bg-violet-950/30 text-violet-200'
-    }))
+      color: isCompleted
+        ? 'border-emerald-500/60 bg-emerald-950/30 text-emerald-200'
+        : t.priority === 'urgent'
+        ? 'border-rose-500/60 bg-rose-950/30 text-rose-200'
+        : t.priority === 'high'
+        ? 'border-amber-500/60 bg-amber-950/30 text-amber-200'
+        : 'border-violet-500/60 bg-violet-950/30 text-violet-200'
+    };
+  });
+
+  const focusEvents: TimelineEvent[] = dayFocus
+    .filter(f => {
+      // Don't duplicate if a dayTask already represents this exact time slot
+      return !taskEvents.some(te => te.start === f.startTime && te.end === f.endTime);
+    })
+    .map(f => {
+      const start = f.startTime || (f.timeSlot ? f.timeSlot.split('–')[0]?.trim() : '00:00');
+      const end = f.endTime || (f.timeSlot ? f.timeSlot.split('–')[1]?.trim() : '00:00');
+      return {
+        id: `focus_${f.id}`,
+        title: f.reason || f.taskTitle || 'Focus Session',
+        start,
+        end,
+        type: 'focus' as const,
+        category: f.category,
+        isCompleted: true,
+        durationMinutes: f.durationMinutes,
+        focusId: f.id,
+        color: 'border-emerald-500/60 bg-emerald-950/30 text-emerald-200'
+      };
+    });
+
+  const timelineEvents: TimelineEvent[] = [
+    ...fixedEvents,
+    ...taskEvents,
+    ...focusEvents
   ].sort((a, b) => a.start.localeCompare(b.start));
 
   return (
@@ -197,15 +253,15 @@ export const SchedulePage: React.FC = () => {
               selectedDate === '2026-10-18' ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40' : 'text-slate-400 hover:text-white'
             }`}
           >
-            Today (Oct 18)
+            Oct 18
           </button>
           <button
-            onClick={() => setSelectedDate('2026-10-19')}
+            onClick={() => setSelectedDate(todayStr)}
             className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-              selectedDate === '2026-10-19' ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40' : 'text-slate-400 hover:text-white'
+              selectedDate === todayStr ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40' : 'text-slate-400 hover:text-white'
             }`}
           >
-            Tomorrow
+            Today ({todayStr.slice(5)})
           </button>
         </div>
       </div>
@@ -226,20 +282,61 @@ export const SchedulePage: React.FC = () => {
               key={ev.id}
               className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${ev.color}`}
             >
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-black/40 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-xl bg-black/50 border border-white/10 shrink-0">
                   {ev.start} – {ev.end}
                 </span>
-                <div>
-                  <h4 className="text-xs font-bold text-white">{ev.title}</h4>
-                  <p className="text-[10px] text-slate-400">
-                    {ev.type === 'fixed' ? 'Fixed Commitment (Protected)' : `Study Task • ${ev.category?.toUpperCase()}`}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-xs font-bold text-white truncate">{ev.title}</h4>
+                    {ev.isCompleted && (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        Completed ({ev.durationMinutes || 0}m work)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {ev.type === 'fixed'
+                      ? 'Fixed Commitment (Protected)'
+                      : ev.type === 'focus'
+                      ? `Focus Session Work • ${(ev.category || 'Study').toUpperCase()}`
+                      : `Study Task • ${(ev.category || 'Study').toUpperCase()}`}
                   </p>
                 </div>
               </div>
 
-              {ev.type === 'task' && (
-                <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
+                {ev.type === 'task' && !ev.isCompleted && (
+                  <button
+                    onClick={() => {
+                      const sixCatMap: Record<string, SixCategory> = {
+                        cat: 'cat',
+                        gate: 'gate',
+                        dsa: 'dsa',
+                        career: 'job_apply',
+                        academics: 'academics',
+                        tuition: 'academics',
+                        fitness: 'entertainment',
+                        personal: 'entertainment'
+                      };
+                      setActiveSlotTarget({
+                        category: sixCatMap[ev.category || ''] || 'academics',
+                        reason: ev.title,
+                        startTime: ev.start,
+                        endTime: ev.end
+                      });
+                      setFocusModalOpen(true);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/30 text-xs font-semibold flex items-center gap-1 transition-colors"
+                    title="Start focus timer for this time slot"
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                    <span>Focus Now</span>
+                  </button>
+                )}
+
+                {ev.type === 'task' && (
                   <button
                     onClick={() => {
                       const t = tasks.find(item => item.id === ev.taskId);
@@ -254,8 +351,8 @@ export const SchedulePage: React.FC = () => {
                   >
                     {ev.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -325,6 +422,50 @@ export const SchedulePage: React.FC = () => {
       )}
 
       <QuickTaskModal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} />
+
+      {focusModalOpen && activeSlotTarget && (
+        <SessionReasonModal
+          isOpen={focusModalOpen}
+          onClose={() => setFocusModalOpen(false)}
+          userId={user.id}
+          defaultCategory={activeSlotTarget.category}
+          defaultReason={activeSlotTarget.reason}
+          defaultStartTime={activeSlotTarget.startTime}
+          defaultEndTime={activeSlotTarget.endTime}
+          onStartTimer={(info) => {
+            recordFocusSession({
+              userId: user.id,
+              category: info.category,
+              reason: info.reason,
+              durationMinutes: info.durationMinutes,
+              mode: 'custom',
+              ambientSound: 'none',
+              sharedWithPartner: true,
+              startTime: info.startTime,
+              endTime: info.endTime,
+              timeSlot: info.timeSlot,
+              date: info.date || selectedDate
+            });
+            toast.success(`Session started and added to time slot (${info.timeSlot})!`);
+          }}
+          onLogCompletedDirectly={(info) => {
+            recordFocusSession({
+              userId: user.id,
+              category: info.category,
+              reason: info.reason,
+              durationMinutes: info.durationMinutes,
+              mode: 'custom',
+              ambientSound: 'none',
+              sharedWithPartner: true,
+              startTime: info.startTime,
+              endTime: info.endTime,
+              timeSlot: info.timeSlot,
+              date: info.date || selectedDate
+            });
+            toast.success(`Completed work logged in time slot (${info.timeSlot})!`);
+          }}
+        />
+      )}
     </div>
   );
 };

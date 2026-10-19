@@ -48,6 +48,8 @@ export const FocusPage: React.FC = () => {
   const [totalSeconds, setTotalSeconds] = useState(25 * 60);
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isRunning, setIsRunning] = useState(false);
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [sessionSlot, setSessionSlot] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSound, setSelectedSound] = useState<'rain' | 'binaural' | 'white_noise' | 'cafe' | 'none'>('rain');
   const [soundVolume, setSoundVolume] = useState(0.4);
@@ -99,6 +101,9 @@ export const FocusPage: React.FC = () => {
       alert('Entertainment limit of 1 hour (60 minutes) has already been reached for today!');
       return;
     }
+    if (!sessionStartTime) {
+      setSessionStartTime(new Date());
+    }
     setIsRunning(true);
     toast.success('Timer Started!', `Focusing on: "${sessionReason}"`);
   };
@@ -110,6 +115,8 @@ export const FocusPage: React.FC = () => {
   const handleReset = () => {
     setIsRunning(false);
     setTimeLeft(totalSeconds);
+    setSessionStartTime(null);
+    setSessionSlot(null);
     ambientSound.stop();
   };
 
@@ -120,6 +127,14 @@ export const FocusPage: React.FC = () => {
     const elapsed = totalSeconds - timeLeft;
     const mins = Math.max(1, Math.round(elapsed / 60));
 
+    const endD = new Date();
+    const startD = sessionStartTime || new Date(endD.getTime() - mins * 60 * 1000);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const startStr = `${pad(startD.getHours())}:${pad(startD.getMinutes())}`;
+    const endStr = `${pad(endD.getHours())}:${pad(endD.getMinutes())}`;
+    const calculatedSlot = sessionSlot || `${startStr} – ${endStr}`;
+    const dateStr = endD.toISOString().slice(0, 10);
+
     recordFocusSession({
       userId: user.id,
       category,
@@ -127,7 +142,11 @@ export const FocusPage: React.FC = () => {
       durationMinutes: mins,
       mode: 'custom',
       ambientSound: selectedSound,
-      sharedWithPartner: true
+      sharedWithPartner: true,
+      startTime: startStr,
+      endTime: endStr,
+      timeSlot: calculatedSlot,
+      date: dateStr
     });
 
     confetti({
@@ -136,20 +155,43 @@ export const FocusPage: React.FC = () => {
       origin: { y: 0.6 }
     });
 
-    toast.success('Session Finished & Added to Day-End Report!', `Great job! Logged ${mins}m for ${category.toUpperCase()}`);
+    toast.success(
+      `Added to Time Slot (${calculatedSlot})!`,
+      `Great job! Logged ${mins}m work for ${category.toUpperCase()}: "${sessionReason}" in your daily schedule.`
+    );
     setTimeLeft(totalSeconds);
+    setSessionStartTime(null);
+    setSessionSlot(null);
   };
 
-  const handleStartFromModal = (info: { category: SixCategory; reason: string; durationMinutes: number }) => {
+  const handleStartFromModal = (info: {
+    category: SixCategory;
+    reason: string;
+    durationMinutes: number;
+    startTime?: string;
+    endTime?: string;
+    timeSlot?: string;
+    date?: string;
+  }) => {
     setCategory(info.category);
     setSessionReason(info.reason);
     const secs = info.durationMinutes * 60;
     setTotalSeconds(secs);
     setTimeLeft(secs);
+    setSessionSlot(info.timeSlot || null);
+    setSessionStartTime(new Date());
     setIsRunning(true);
   };
 
-  const handleLogCompletedDirectly = (info: { category: SixCategory; reason: string; durationMinutes: number }) => {
+  const handleLogCompletedDirectly = (info: {
+    category: SixCategory;
+    reason: string;
+    durationMinutes: number;
+    startTime?: string;
+    endTime?: string;
+    timeSlot?: string;
+    date?: string;
+  }) => {
     recordFocusSession({
       userId: user.id,
       category: info.category,
@@ -157,7 +199,11 @@ export const FocusPage: React.FC = () => {
       durationMinutes: info.durationMinutes,
       mode: 'custom',
       ambientSound: 'none',
-      sharedWithPartner: true
+      sharedWithPartner: true,
+      startTime: info.startTime,
+      endTime: info.endTime,
+      timeSlot: info.timeSlot,
+      date: info.date
     });
 
     confetti({
@@ -166,7 +212,11 @@ export const FocusPage: React.FC = () => {
       origin: { y: 0.7 }
     });
 
-    toast.success('Logged Directly to Day-End Report!', `${info.durationMinutes}m added for ${info.category.toUpperCase()}`);
+    const slotLabel = info.timeSlot ? ` in slot ${info.timeSlot}` : '';
+    toast.success(
+      'Work Added to Schedule!',
+      `Logged ${info.durationMinutes}m for ${info.category.toUpperCase()}${slotLabel}: "${info.reason}"`
+    );
   };
 
   // Fullscreen helper
@@ -312,11 +362,20 @@ export const FocusPage: React.FC = () => {
 
           <button
             onClick={handleCompleteSession}
-            className="px-6 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-lg"
+            className="px-6 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-lg hover:scale-105"
+            title="End timer and add to daily schedule time slot"
           >
-            <CheckCircle2 className="w-4 h-4" /> Finish & Add to Day-End Report
+            <CheckCircle2 className="w-4 h-4" /> End Timer & Add to Time Slot
           </button>
         </div>
+
+        {/* Live Slot Preview */}
+        {timeLeft < totalSeconds && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs">
+            <Clock className="w-3.5 h-3.5 text-violet-400" />
+            <span>Adding {Math.max(1, Math.round((totalSeconds - timeLeft) / 60))}m work to schedule time slot on completion</span>
+          </div>
+        )}
 
         {/* Sound Ambience Controls */}
         <div className="flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-white/5 w-full max-w-md">

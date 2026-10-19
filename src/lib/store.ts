@@ -15,7 +15,8 @@ import {
   WeeklyReview,
   SharedWorkspace,
   StudentPersona,
-  SixCategory
+  SixCategory,
+  TaskCategory
 } from './types';
 import {
   USER_A_PROFILE,
@@ -532,18 +533,91 @@ export function getFocusSessions(userId?: string): FocusSession[] {
   return all.filter(f => f.userId === userId);
 }
 
-export function recordFocusSession(sessionData: Omit<FocusSession, 'id' | 'completedAt'>): FocusSession {
+export function recordFocusSession(sessionData: Omit<FocusSession, 'id' | 'completedAt'> & { completedAt?: string }): FocusSession {
   const all = readStorage<FocusSession[]>(KEY_FOCUS, []);
+  const now = new Date();
+  const completedAt = sessionData.completedAt || now.toISOString();
+
+  // Compute start/end time slot
+  const durationMins = Math.max(1, sessionData.durationMinutes || 1);
+  const endD = new Date(completedAt);
+  const startD = new Date(endD.getTime() - durationMins * 60 * 1000);
+
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const defaultStartTime = `${pad(startD.getHours())}:${pad(startD.getMinutes())}`;
+  const defaultEndTime = `${pad(endD.getHours())}:${pad(endD.getMinutes())}`;
+
+  const startTime = sessionData.startTime || defaultStartTime;
+  const endTime = sessionData.endTime || defaultEndTime;
+  const timeSlot = sessionData.timeSlot || `${startTime} – ${endTime}`;
+  const date = sessionData.date || completedAt.slice(0, 10);
+
   const newSession: FocusSession = {
     ...sessionData,
     id: `focus_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    completedAt: new Date().toISOString()
+    completedAt,
+    startTime,
+    endTime,
+    timeSlot,
+    date
   };
   const updated = [newSession, ...all];
   writeStorage(KEY_FOCUS, updated);
 
   const isUserA = newSession.userId === USER_A_PROFILE.id;
   const sessionLabel = newSession.reason || newSession.taskTitle || (newSession.category ? newSession.category.toUpperCase() : 'Focus Session');
+
+  // Automatically add/update work done into the particular time slot in tasks/schedule
+  const taskCategoryMap: Record<string, TaskCategory> = {
+    cat: 'cat',
+    gate: 'gate',
+    dsa: 'dsa',
+    job_apply: 'career',
+    academics: 'academics',
+    entertainment: 'personal'
+  };
+  const mappedCategory = taskCategoryMap[newSession.category || ''] || 'academics';
+
+  const allTasks = getTasks(newSession.userId);
+  const matchingTask = newSession.taskId
+    ? allTasks.find(t => t.id === newSession.taskId)
+    : allTasks.find(t =>
+        t.status !== 'completed' &&
+        t.scheduledDate === date &&
+        (t.title.toLowerCase().includes(sessionLabel.toLowerCase()) || sessionLabel.toLowerCase().includes(t.title.toLowerCase()))
+      );
+
+  if (matchingTask) {
+    updateTask({
+      ...matchingTask,
+      status: 'completed',
+      scheduledDate: date,
+      scheduledStart: startTime,
+      scheduledEnd: endTime,
+      actualMinutes: (matchingTask.actualMinutes || 0) + durationMins,
+      completedAt
+    });
+  } else {
+    // Add completed task into that particular time slot in schedule
+    addTask({
+      userId: newSession.userId,
+      title: sessionLabel,
+      description: `Logged work in time slot ${timeSlot} (${durationMins}m)`,
+      category: mappedCategory,
+      status: 'completed',
+      priority: 'medium',
+      dueDate: date,
+      scheduledDate: date,
+      scheduledStart: startTime,
+      scheduledEnd: endTime,
+      estimatedMinutes: durationMins,
+      actualMinutes: durationMins,
+      completedAt,
+      isLocked: true,
+      isPrivate: false,
+      orderIndex: Date.now()
+    });
+  }
 
   if (newSession.sharedWithPartner) {
     recordActivity({
@@ -552,7 +626,7 @@ export function recordFocusSession(sessionData: Omit<FocusSession, 'id' | 'compl
       userName: isUserA ? 'Garvit' : 'Bittu',
       userPersona: isUserA ? 'user_a' : 'user_b',
       eventType: 'focus_ended',
-      summary: `Completed ${newSession.durationMinutes}m [${(newSession.category || 'focus').toUpperCase()}]: "${sessionLabel}"`
+      summary: `Completed ${durationMins}m [${(newSession.category || 'focus').toUpperCase()}] in slot ${timeSlot}: "${sessionLabel}"`
     });
   }
 
@@ -560,9 +634,13 @@ export function recordFocusSession(sessionData: Omit<FocusSession, 'id' | 'compl
   apiCreateFocusSession({
     id: newSession.id,
     userId: newSession.userId,
-    taskTitle: newSession.taskTitle || newSession.reason || 'Focus Session',
+    taskTitle: sessionLabel,
     category: newSession.category,
     durationMinutes: newSession.durationMinutes,
+    timeSlot,
+    startTime,
+    endTime,
+    date,
     mode: newSession.mode,
     energyScore: newSession.energyScore,
     focusScore: newSession.focusScore,
@@ -601,9 +679,16 @@ export function deleteFocusSession(sessionId: string) {
   broadcastUpdate('FOCUS_UPDATE', filtered);
 }
 
-export function getDailyCategoryStats(userId: string, targetDate = '2026-10-18') {
+export function getDailyCategoryStats(userId: string, targetDate?: string) {
   const all = getFocusSessions(userId);
-  const todaySessions = all.filter(s => s.completedAt.startsWith(targetDate) || s.completedAt.slice(0, 10) === targetDate);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todaySessions = all.filter(s => {
+    const sDate = s.date || (s.completedAt ? s.completedAt.slice(0, 10) : '');
+    if (targetDate) {
+      return sDate === targetDate;
+    }
+    return sDate === todayStr || sDate === '2026-10-18';
+  });
 
   const categoryTotals: Record<SixCategory, { minutes: number; count: number; sessions: FocusSession[] }> = {
     cat: { minutes: 0, count: 0, sessions: [] },
