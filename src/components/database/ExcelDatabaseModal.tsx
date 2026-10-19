@@ -72,7 +72,7 @@ export const ExcelDatabaseModal: React.FC<ExcelDatabaseModalProps> = ({ isOpen, 
   const isOnline = Boolean(health);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Excel Database Backend" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Excel Database Backend" maxWidth="lg">
       <div className="space-y-6">
         {/* Connection Status Banner */}
         <div className={`p-4 rounded-2xl border flex items-center justify-between ${

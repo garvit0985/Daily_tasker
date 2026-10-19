@@ -71,25 +71,41 @@
 - **Routing**: React Router (HashRouter for static and dev hosting compatibility).
 - **State & Realtime**: Local persistent reactive store with `BroadcastChannel` cross-tab live bus + Supabase JS Client bridge.
 - **Audio**: Web Audio API native sound synthesizer.
-- **Backend / Database**: Supabase PostgreSQL schema with Row Level Security (RLS) policies and Realtime publications (`supabase/migrations/20261018000000_duo_os_schema.sql`).
+- **Backend / Database**: 
+  - **Excel Database Engine (Built-in)**: Node.js & Express REST API powered by `ExcelJS` writing directly to `server/data/database.xlsx` with auto-seeded sheets (`Users`, `Tasks`, `FocusSessions`, `Timetable`, `Exams`, `Subjects`, `ActivityFeed`), atomic file locking, real-time sync, and direct spreadsheet export (`/api/database/download`).
+  - **Supabase (Optional Cloud Sync)**: PostgreSQL schema with Row Level Security (RLS) policies and Realtime publications (`supabase/migrations/20261018000000_duo_os_schema.sql`).
 
 ---
 
 ## 📦 Getting Started
 
-### 1. Run Development Server
+### 1. Install Dependencies
 ```bash
 npm install
+```
+
+### 2. Start Backend (Excel Database Engine)
+```bash
+npm run server
+```
+- REST API starts at `http://localhost:5000`
+- Reads and updates `server/data/database.xlsx` automatically
+- Download your database spreadsheet anytime from `http://localhost:5000/api/database/download` or via the top navigation Excel button
+
+### 3. Start Frontend Dev Server
+In a separate terminal:
+```bash
 npm run dev
 ```
 Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-### 2. Testing Multi-User Realtime Sync
+### 4. Testing Multi-User Realtime Sync
 1. Open [http://localhost:5173](http://localhost:5173) in Tab 1 (as **Garvit**).
 2. Open [http://localhost:5173](http://localhost:5173) in Tab 2 and click **"Switch to Bittu"** in the top navigation.
 3. In Tab 1, complete a task or update your mood. Notice Tab 2's `/together` page updates in real time!
 
-### 3. Connecting Supabase (Optional)
+### 5. Connecting Supabase (Optional)
 1. In your Supabase project dashboard, open the **SQL Editor**.
 2. Run the script located at `supabase/migrations/20261018000000_duo_os_schema.sql`.
 3. In DUO OS, navigate to **Settings** (`#/settings`), paste your **Supabase Project URL** and **Public Anon Key**, and click **Save Credentials**.
+

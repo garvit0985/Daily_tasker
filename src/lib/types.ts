@@ -175,6 +175,9 @@ export interface FocusSession {
   ambientSound: string;
   sharedWithPartner: boolean;
   completedAt: string;
+  energyScore?: number;
+  focusScore?: number;
+  reflectionNotes?: string;
 }
 
 export type MoodType =
